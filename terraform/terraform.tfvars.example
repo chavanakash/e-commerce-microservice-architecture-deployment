@@ -1,0 +1,7 @@
+resource_group_name  = "microservices-rg"
+location             = "East US"
+prefix               = "ecommerce"
+environment          = "dev"
+admin_username       = "azureuser"
+ssh_public_key_path  = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCozgCZSUbRHbXAIyQKLn8CIYNm9lN55Yldm/8CyuB/0MKsUyuHkIfJ4HWDT/Fa580FlPARcbOH7abcTWx1+qlwnaHG0UXwu4J9RFG97BNnfkGHoZtaBq8YR16jwKyL7oKxOZre5GUoP7o07/D7QwP6GOuMrii2RNe+Sy8onFcwqB9XT7lt1pbU1NdZ33GmgbzcMIJyqv9VcDWe0qgnS2FQufUleNOm341+UtHaHTj7k6GW585VZYgO7un9PfErM61++IGE0AeephEdGPmDdgoJIqgjUykDmX6F68+GOoAW439WIF4yIFpdMvJmGaHjckuyDSryKEWtze2HbeHcbxivqqn+SdMDCgQv1l6swmsFONIrQvyFZM48gUfk5QcojiVxvDCUAuyGzQlmvDc4iyAQDYNLFG0ZI/DTppxTcwq785QSyxSgj9mbRt7jUWwI+KC611J2QM04XuiWhDfIzs5H4atedCkQLpEJkW4g8t1KNvTgNFSqSdDTqN4W36Dd2c/3wAEkwSJk8X7x88N/CHsBainJ2/AiL0J4bJYroeZdIHbv/vyNYSmN7CdRFrHeKwJDgK0/uKXN2siRhjdb6jwS+QO4+96OUdhvDFjFYZtT4PoasaOou7HAtAwRXifKhcO5U5KKnJ9UHEwj2dMIbCe9i+Nv1Amt3yQg/YHgXkvTTQ== crazeeshorts3@gmail.com"
+mongodb_uri          = "mongodb+srv://sabavathakash9_db_user:acnayak9@cluster0.mnauwo4.mongodb.net/?appName=Cluster0"

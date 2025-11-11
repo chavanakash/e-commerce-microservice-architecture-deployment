@@ -1,0 +1,202 @@
+# ============================================
+# FILE: .gitignore (Root Directory)
+# ============================================
+
+# ===========================
+# Node.js Dependencies
+# ===========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+package-lock.json
+yarn.lock
+
+# ===========================
+# Environment Variables
+# ===========================
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.env
+
+# ===========================
+# Build & Distribution
+# ===========================
+build/
+dist/
+out/
+.next/
+*.tsbuildinfo
+
+# ===========================
+# IDE & Editor
+# ===========================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+.history/
+
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===========================
+# Logs
+# ===========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ===========================
+# Testing & Coverage
+# ===========================
+coverage/
+.nyc_output/
+*.lcov
+.cache/
+test-results/
+junit.xml
+
+# ===========================
+# Docker
+# ===========================
+docker-compose.override.yml
+.dockerignore
+
+# ===========================
+# Terraform
+# ===========================
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl
+terraform.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+
+# ===========================
+# Kubernetes
+# ===========================
+*.kubeconfig
+kubeconfig
+.kube/
+secrets.yaml
+*-secrets.yaml
+
+# ===========================
+# Jenkins
+# ===========================
+jenkins-data/
+.jenkins/
+jenkins_home/
+
+# ===========================
+# Monitoring & Logs
+# ===========================
+prometheus-data/
+grafana-data/
+*.log
+
+# ===========================
+# Temporary Files
+# ===========================
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# ===========================
+# Security & Credentials
+# ===========================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+service-account.json
+ssh-keys/
+.ssh/
+
+# ===========================
+# Archives
+# ===========================
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ===========================
+# Backup Files
+# ===========================
+*.bak
+*.backup
+*~
+backup/
+backups/
+
+# ===========================
+# React Specific
+# ===========================
+.eslintcache
+npm-debug.log
+.npm
+
+# ===========================
+# Output Files
+# ===========================
+outputs.txt
+*.output
+
+# ===========================
+# Azure Specific
+# ===========================
+.azure/
+
+# ===========================
+# Local Development
+# ===========================
+local/
+.local/
+dev/
+development/

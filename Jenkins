@@ -1,0 +1,273 @@
+// ============================================
+// FILE: Jenkinsfile
+// ============================================
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'your-registry.azurecr.io'
+        DOCKER_CREDENTIALS = 'acr-credentials'
+        MONGODB_URI = credentials('mongodb-uri')
+        AKS_CLUSTER = 'ecommerce-aks'
+        AKS_RESOURCE_GROUP = 'microservices-rg'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                echo 'Code checked out successfully'
+            }
+        }
+        
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Product Service') {
+                    steps {
+                        script {
+                            dir('product-service') {
+                                sh 'docker build -t ${DOCKER_REGISTRY}/product-service:${BUILD_NUMBER} .'
+                                sh 'docker tag ${DOCKER_REGISTRY}/product-service:${BUILD_NUMBER} ${DOCKER_REGISTRY}/product-service:latest'
+                            }
+                        }
+                    }
+                }
+                stage('Build Order Service') {
+                    steps {
+                        script {
+                            dir('order-service') {
+                                sh 'docker build -t ${DOCKER_REGISTRY}/order-service:${BUILD_NUMBER} .'
+                                sh 'docker tag ${DOCKER_REGISTRY}/order-service:${BUILD_NUMBER} ${DOCKER_REGISTRY}/order-service:latest'
+                            }
+                        }
+                    }
+                }
+                stage('Build User Service') {
+                    steps {
+                        script {
+                            dir('user-service') {
+                                sh 'docker build -t ${DOCKER_REGISTRY}/user-service:${BUILD_NUMBER} .'
+                                sh 'docker tag ${DOCKER_REGISTRY}/user-service:${BUILD_NUMBER} ${DOCKER_REGISTRY}/user-service:latest'
+                            }
+                        }
+                    }
+                }
+                stage('Build Frontend') {
+                    steps {
+                        script {
+                            dir('frontend') {
+                                sh 'docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} .'
+                                sh 'docker tag ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ${DOCKER_REGISTRY}/frontend:latest'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            steps {
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", DOCKER_CREDENTIALS) {
+                        sh 'docker push ${DOCKER_REGISTRY}/product-service:${BUILD_NUMBER}'
+                        sh 'docker push ${DOCKER_REGISTRY}/product-service:latest'
+                        sh 'docker push ${DOCKER_REGISTRY}/order-service:${BUILD_NUMBER}'
+                        sh 'docker push ${DOCKER_REGISTRY}/order-service:latest'
+                        sh 'docker push ${DOCKER_REGISTRY}/user-service:${BUILD_NUMBER}'
+                        sh 'docker push ${DOCKER_REGISTRY}/user-service:latest'
+                        sh 'docker push ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER}'
+                        sh 'docker push ${DOCKER_REGISTRY}/frontend:latest'
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to AKS') {
+            steps {
+                script {
+                    // Configure kubectl
+                    sh '''
+                        az aks get-credentials --resource-group ${AKS_RESOURCE_GROUP} --name ${AKS_CLUSTER}
+                        
+                        # Update images in deployments
+                        kubectl set image deployment/product-service product-service=${DOCKER_REGISTRY}/product-service:${BUILD_NUMBER} -n ecommerce
+                        kubectl set image deployment/order-service order-service=${DOCKER_REGISTRY}/order-service:${BUILD_NUMBER} -n ecommerce
+                        kubectl set image deployment/user-service user-service=${DOCKER_REGISTRY}/user-service:${BUILD_NUMBER} -n ecommerce
+                        kubectl set image deployment/frontend frontend=${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} -n ecommerce
+                        
+                        # Wait for rollout
+                        kubectl rollout status deployment/product-service -n ecommerce
+                        kubectl rollout status deployment/order-service -n ecommerce
+                        kubectl rollout status deployment/user-service -n ecommerce
+                        kubectl rollout status deployment/frontend -n ecommerce
+                    '''
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    sh '''
+                        # Check if all pods are running
+                        kubectl get pods -n ecommerce
+                        
+                        # Get service URLs
+                        echo "Service endpoints:"
+                        kubectl get svc -n ecommerce
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Pipeline succeeded! Application deployed successfully.'
+            // Add notification here (Slack, email, etc.)
+        }
+        failure {
+            echo 'Pipeline failed! Check logs for details.'
+            // Add notification here
+        }
+        always {
+            // Clean up docker images
+            sh 'docker system prune -f'
+        }
+    }
+}
+
+// ============================================
+// FILE: jenkins/setup-jenkins.sh
+// ============================================
+#!/bin/bash
+
+echo "Setting up Jenkins for the microservices project"
+
+# Install required plugins
+PLUGINS=(
+    "docker-workflow"
+    "kubernetes"
+    "kubernetes-cli"
+    "git"
+    "pipeline-stage-view"
+    "blueocean"
+    "prometheus"
+)
+
+echo "Installing Jenkins plugins..."
+for plugin in "${PLUGINS[@]}"; do
+    echo "Installing $plugin..."
+    java -jar jenkins-cli.jar -s http://localhost:8080/ install-plugin $plugin
+done
+
+# Restart Jenkins
+echo "Restarting Jenkins..."
+java -jar jenkins-cli.jar -s http://localhost:8080/ safe-restart
+
+echo "Jenkins setup complete!"
+echo "Please configure the following credentials in Jenkins:"
+echo "1. Docker registry credentials (ID: acr-credentials)"
+echo "2. MongoDB URI (ID: mongodb-uri)"
+echo "3. Azure credentials for AKS access"
+
+// ============================================
+// FILE: jenkins/Dockerfile (Jenkins with Docker)
+// ============================================
+FROM jenkins/jenkins:lts
+
+USER root
+
+# Install Docker
+RUN apt-get update && \
+    apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Install Azure CLI
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+USER jenkins
+
+# Install Jenkins plugins
+RUN jenkins-plugin-cli --plugins \
+    docker-workflow \
+    kubernetes \
+    kubernetes-cli \
+    git \
+    pipeline-stage-view \
+    blueocean \
+    prometheus
+
+// ============================================
+// FILE: jenkins/docker-compose.yml
+// ============================================
+version: '3.8'
+
+services:
+  jenkins:
+    build: .
+    container_name: jenkins
+    privileged: true
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jenkins-home:/var/jenkins_home
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  jenkins-data:
+
+// ============================================
+// FILE: jenkins/jenkins-job-config.xml
+// ============================================
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.40">
+  <actions/>
+  <description>Microservices E-Commerce CI/CD Pipeline</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <com.cloudbees.jenkins.GitHubPushTrigger plugin="github@1.34.1">
+          <spec></spec>
+        </com.cloudbees.jenkins.GitHubPushTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps@2.90">
+    <scm class="hudson.plugins.git.GitSCM" plugin="git@4.7.1">
+      <configVersion>2</configVersion>
+      <userRemoteConfigs>
+        <hudson.plugins.git.UserRemoteConfig>
+          <url>https://github.com/your-username/ecommerce-microservices.git</url>
+          <credentialsId>github-credentials</credentialsId>
+        </hudson.plugins.git.UserRemoteConfig>
+      </userRemoteConfigs>
+      <branches>
+        <hudson.plugins.git.BranchSpec>
+          <name>*/main</name>
+        </hudson.plugins.git.BranchSpec>
+      </branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <submoduleCfg class="list"/>
+      <extensions/>
+    </scm>
+    <scriptPath>Jenkinsfile</scriptPath>
+    <lightweight>true</lightweight>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

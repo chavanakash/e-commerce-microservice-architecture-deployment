@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  product-service:
+    build: ./product-service
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGODB_URI=${MONGODB_URI}/product-service
+      - PORT=3001
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  order-service:
+    build: ./order-service
+    ports:
+      - "3002:3002"
+    environment:
+      - MONGODB_URI=${MONGODB_URI}/order-service
+      - PORT=3002
+      - PRODUCT_SERVICE_URL=http://product-service:3001
+      - USER_SERVICE_URL=http://user-service:3003
+    depends_on:
+      - product-service
+      - user-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  user-service:
+    build: ./user-service
+    ports:
+      - "3003:3003"
+    environment:
+      - MONGODB_URI=${MONGODB_URI}/user-service
+      - PORT=3003
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_PRODUCT_SERVICE=http://localhost:3001
+      - REACT_APP_ORDER_SERVICE=http://localhost:3002
+      - REACT_APP_USER_SERVICE=http://localhost:3003
+    depends_on:
+      - product-service
+      - order-service
+      - user-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+networks:
+  microservices-network:
+    driver: bridge
