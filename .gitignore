@@ -199,4 +199,6 @@ outputs.txt
 local/
 .local/
 dev/
-development/
+development/azure-credentials.env
+*.env
+terraform.tfvars

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: user-service
-        image: <your-registry>/user-service:latest
+        image: dockerizzz/user-service:latest
         ports:
         - containerPort: 3003
         env:

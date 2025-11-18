@@ -3,6 +3,7 @@ version: '3.8'
 services:
   product-service:
     build: ./product-service
+    image: dockerizzz/product-service:latest
     ports:
       - "3001:3001"
     environment:
@@ -14,6 +15,7 @@ services:
 
   order-service:
     build: ./order-service
+    image: dockerizzz/order-service:latest
     ports:
       - "3002:3002"
     environment:
@@ -30,6 +32,7 @@ services:
 
   user-service:
     build: ./user-service
+    image: dockerizzz/user-service:latest
     ports:
       - "3003:3003"
     environment:
@@ -41,6 +44,7 @@ services:
 
   frontend:
     build: ./frontend
+    image: dockerizzz/frontend:latest
     ports:
       - "3000:80"
     environment:
