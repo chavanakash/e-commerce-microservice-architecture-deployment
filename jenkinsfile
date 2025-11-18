@@ -1,39 +1,102 @@
 pipeline {
-    agent any
+    agent {
+        label 'docker'
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+    }
 
     environment {
+        // Docker Configuration
         DOCKER_REGISTRY = 'dockerizzz'
-        IMAGE_TAG = "latest"
+        IMAGE_TAG = "${env.GIT_COMMIT?.take(8) ?: 'latest'}"
+        DOCKER_BUILDKIT = '1'
+        
+        // Credentials
         DOCKER_CREDENTIALS_ID = 'dockerizzz-credentials'
         KUBECONFIG_CREDENTIALS_ID = 'kubeconfig'
         GIT_CREDENTIALS_ID = 'git-credentials'
-        GIT_BRANCH = 'main'
+        
+        // Git Configuration
+        GIT_REPO_URL = 'https://github.com/chavanakash/e-commerce-microservice-architecture-deployment.git'
+        GIT_BRANCH = "${env.BRANCH_NAME ?: 'main'}"
+        
+        // Services to build
+        SERVICES = 'product-service,order-service,user-service,frontend'
     }
 
     stages {
-        stage('Git Checkout') {
+        stage('Initialize') {
             steps {
-                
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "*/${env.GIT_BRANCH}"]],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/your-org/your-repo.git', 
-                        credentialsId: "${GIT_CREDENTIALS_ID}"
-                    ]]
-                ])
+                script {
+                    echo "=== Pipeline Initialization ==="
+                    echo "Branch: ${env.GIT_BRANCH}"
+                    echo "Build: ${env.BUILD_NUMBER}"
+                    echo "Image Tag: ${env.IMAGE_TAG}"
+                    
+                    // Clean workspace
+                    cleanWs()
+                }
             }
         }
 
-      stage('Build & Push Images') {
+        stage('Checkout') {
             steps {
                 script {
-                    docker.withRegistry('', "${DOCKER_CREDENTIALS_ID}") {
-                        def services = ['product-service', 'order-service', 'user-service', 'frontend']
-                        for (svc in services) {
-                            dir(svc) {
-                                def image = docker.build("${DOCKER_REGISTRY}/${svc}:${IMAGE_TAG}", '.')
-                                image.push()
+                    echo "=== Checking out code ==="
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${env.GIT_BRANCH}"]],
+                        extensions: [
+                            [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
+                            [$class: 'CleanCheckout']
+                        ],
+                        userRemoteConfigs: [[
+                            url: "${env.GIT_REPO_URL}",
+                            credentialsId: "${env.GIT_CREDENTIALS_ID}"
+                        ]]
+                    ])
+                }
+            }
+        }
+
+        stage('Validate') {
+            parallel {
+                stage('Validate Dockerfiles') {
+                    steps {
+                        script {
+                            echo "=== Validating Dockerfiles ==="
+                            def services = env.SERVICES.split(',')
+                            services.each { svc ->
+                                if (fileExists("${svc}/Dockerfile")) {
+                                    echo "✓ ${svc}/Dockerfile exists"
+                                } else {
+                                    error "✗ ${svc}/Dockerfile not found"
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                stage('Validate Kubernetes Manifests') {
+                    steps {
+                        script {
+                            echo "=== Validating Kubernetes manifests ==="
+                            if (fileExists('k8s/')) {
+                                sh '''
+                                    for file in k8s/*.yaml k8s/*.yml; do
+                                        if [ -f "$file" ]; then
+                                            echo "Validating $file"
+                                            kubectl apply --dry-run=client -f "$file" || exit 1
+                                        fi
+                                    done
+                                '''
+                            } else {
+                                error "k8s/ directory not found"
                             }
                         }
                     }
@@ -41,29 +104,159 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Build & Push Images') {
             steps {
-                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIALS_ID}", variable: 'KUBECONFIG')]) {
-                    sh '''
-                        export KUBECONFIG=$KUBECONFIG
-                        kubectl apply -f k8s/
-                    '''
+                script {
+                    echo "=== Building and pushing Docker images ==="
+                    docker.withRegistry('', "${env.DOCKER_CREDENTIALS_ID}") {
+                        def services = env.SERVICES.split(',')
+                        def buildFailures = []
+                        
+                        services.each { svc ->
+                            try {
+                                dir(svc.trim()) {
+                                    echo "Building ${svc}..."
+                                    def imageName = "${env.DOCKER_REGISTRY}/${svc.trim()}"
+                                    
+                                    // Build image
+                                    def image = docker.build(
+                                        "${imageName}:${env.IMAGE_TAG}",
+                                        "--build-arg BUILD_DATE=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') " +
+                                        "--build-arg VCS_REF=${env.GIT_COMMIT} " +
+                                        "--label org.opencontainers.image.created=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') " +
+                                        "--label org.opencontainers.image.revision=${env.GIT_COMMIT} " +
+                                        "--label org.opencontainers.image.version=${env.IMAGE_TAG} " +
+                                        "."
+                                    )
+                                    
+                                    // Push with multiple tags
+                                    image.push("${env.IMAGE_TAG}")
+                                    image.push("build-${env.BUILD_NUMBER}")
+                                    
+                                    // Tag as latest only on main branch
+                                    if (env.GIT_BRANCH == 'main') {
+                                        image.push('latest')
+                                    }
+                                    
+                                    echo "✓ Successfully built and pushed ${imageName}:${env.IMAGE_TAG}"
+                                }
+                            } catch (Exception e) {
+                                buildFailures << svc
+                                echo "✗ Failed to build ${svc}: ${e.message}"
+                            }
+                        }
+                        
+                        if (buildFailures) {
+                            error "Failed to build services: ${buildFailures.join(', ')}"
+                        }
+                    }
                 }
             }
         }
 
-        stage('Push to Git') {
+        stage('Security Scan') {
+            when {
+                expression { return fileExists('/usr/local/bin/trivy') }
+            }
             steps {
-                withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS_ID}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
-                    sh '''
-                        git config user.email "ci-bot@example.com"
-                        git config user.name "ci-bot"
-                        git add .
-                        git commit -m "Automated build and deploy [ci skip]" || echo "No changes to commit"
-                        git push https://${GIT_USER}:${GIT_PASS}@$(git config --get remote.origin.url | sed -e 's#https://##') ${GIT_BRANCH}
-                    '''
+                script {
+                    echo "=== Running security scans ==="
+                    def services = env.SERVICES.split(',')
+                    services.each { svc ->
+                        sh """
+                            trivy image --severity HIGH,CRITICAL \
+                                --exit-code 0 \
+                                ${env.DOCKER_REGISTRY}/${svc.trim()}:${env.IMAGE_TAG}
+                        """
+                    }
                 }
             }
+        }
+
+        stage('Deploy to Kubernetes') {
+            when {
+                expression { return env.GIT_BRANCH == 'main' || env.GIT_BRANCH == 'develop' }
+            }
+            steps {
+                script {
+                    echo "=== Deploying to Kubernetes ==="
+                    withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
+                        sh '''
+                            export KUBECONFIG=${KUBECONFIG_FILE}
+                            
+                            # Apply configurations
+                            echo "Applying Kubernetes manifests..."
+                            kubectl apply -f k8s/
+                            
+                            # Wait for rollout
+                            echo "Waiting for deployments to roll out..."
+                            for deployment in $(kubectl get deployments -o jsonpath='{.items[*].metadata.name}'); do
+                                echo "Checking rollout status for $deployment..."
+                                kubectl rollout status deployment/$deployment --timeout=5m
+                            done
+                            
+                            # Verify deployment
+                            echo "Verifying deployment..."
+                            kubectl get pods
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Health Check') {
+            when {
+                expression { return env.GIT_BRANCH == 'main' || env.GIT_BRANCH == 'develop' }
+            }
+            steps {
+                script {
+                    echo "=== Running health checks ==="
+                    sleep(time: 30, unit: 'SECONDS')
+                    
+                    withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
+                        sh '''
+                            export KUBECONFIG=${KUBECONFIG_FILE}
+                            
+                            # Check pod status
+                            if kubectl get pods | grep -E '0/|Error|CrashLoopBackOff'; then
+                                echo "⚠ Warning: Some pods are not healthy"
+                                kubectl get pods
+                                exit 1
+                            else
+                                echo "✓ All pods are healthy"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '=== Pipeline completed successfully ==='
+            // Add notifications here (Slack, email, etc.)
+        }
+        
+        failure {
+            echo '=== Pipeline failed ==='
+            // Add failure notifications here
+        }
+        
+        always {
+            script {
+                echo '=== Cleaning up ==='
+                // Clean up Docker images to save space
+                sh '''
+                    docker image prune -f --filter "until=24h" || true
+                '''
+            }
+            
+            // Archive build artifacts
+            archiveArtifacts artifacts: '**/target/*.jar,**/build/*.jar', allowEmptyArchive: true
+            
+            // Clean workspace
+            cleanWs()
         }
     }
 }
